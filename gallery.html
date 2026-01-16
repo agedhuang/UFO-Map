@@ -1,0 +1,1686 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>UFO Media Gallery</title>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Arimo:ital,wght@0,400..700;1,400..700&family=Orbitron:wght@400;500;600;700;800;900&family=Rajdhani:wght@300;400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
+
+    <!-- D3.js v7 -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <!-- PixiJS v7 (WebGL Engine) -->
+    <script src="https://pixijs.download/v7.x/pixi.min.js"></script>
+
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden; /* 隐藏滚动条，使用Canvas风格交互 */
+        font-family: 'Rajdhani', 'Arial', sans-serif;
+        background: #050505;
+        color: #fff;
+        cursor: grab; /* 鼠标手势 */
+      }
+
+      body.grabbing {
+        cursor: grabbing;
+      }
+
+      /* 视图切换 Toggle */
+      .view-toggle {
+        position: absolute;
+        top: 30px;
+        right: 30px;
+        display: flex;
+        background: rgba(0, 0, 0, 0.9);
+        border: 1px solid #00ff00;
+        z-index: 1000;
+        box-shadow: 0 0 10px rgba(0, 255, 0, 0.2);
+      }
+
+      .toggle-option {
+        padding: 10px 20px;
+        color: rgba(0, 255, 0, 0.5);
+        text-decoration: none;
+        font-family: 'Arimo', sans-serif;
+        font-size: 13px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        transition: all 0.2s;
+        border-right: 1px solid rgba(0, 255, 0, 0.3);
+        background: transparent;
+      }
+
+      .toggle-option:last-child {
+        border-right: none;
+      }
+
+      .toggle-option:hover {
+        color: #00ff00;
+        background: rgba(0, 255, 0, 0.1);
+        box-shadow: 0 0 15px rgba(0, 255, 0, 0.4);
+      }
+
+      .toggle-option.active {
+        background: #00ff00;
+        color: #000000;
+        box-shadow: 0 0 15px rgba(0, 255, 0, 0.6);
+      }
+
+      /* 导航栏 - 简洁固定 */
+      .navbar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        background: rgba(0, 0, 0, 0.8);
+        border-bottom: 1px solid rgba(0, 255, 0, 0.2);
+        padding: 12px 20px;
+        z-index: 1000;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        pointer-events: none; /* 让点击穿透，除非点到链接 */
+      }
+
+      .navbar a {
+        pointer-events: auto;
+      }
+
+      /* 画布容器 */
+      #canvas-container {
+        width: 100vw;
+        height: 100vh;
+        overflow: hidden;
+        position: relative;
+        background: #050505;
+      }
+
+      /* 背景Canvas层 - 用于高性能渲染大量点 */
+      #bg-canvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none; /* 不阻挡鼠标事件 */
+        z-index: 0;
+      }
+
+      /* 实际的画布层，会被transform变换 */
+      .canvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+        /* 移除固定的宽高，由内容撑开或虚拟计算 */
+        transform-origin: 0 0;
+        will-change: transform; /* 性能优化 */
+        z-index: 1;
+      }
+
+      /* 图片项 */
+      .image-item {
+        position: absolute;
+        /* 移除过渡效果以提高拖拽时的性能，或者只保留opacity */
+        transition: opacity 0.2s ease, border-color 0.2s; 
+        border: 1px solid rgba(0, 255, 0, 0.1);
+        background: #080808;
+        overflow: hidden;
+        /* 默认不显示鼠标指针，避免干扰拖拽，hover时才显示 */
+        pointer-events: none; 
+      }
+      
+      /* 只有在缩放比例足够大时，才允许交互 */
+      .canvas.interactive .image-item {
+        pointer-events: auto;
+        cursor: pointer;
+      }
+
+      .image-item:hover {
+        border-color: #00ff00;
+        z-index: 200;
+        /* 移除缩放效果，因为在无限画布中缩放可能会导致抖动，改用高亮边框 */
+        box-shadow: 0 0 20px rgba(0, 255, 0, 0.4);
+      }
+
+      /* 普通图片 */
+      .image-item.normal {
+        width: 140px;
+        height: 140px;
+        z-index: 1;
+      }
+
+      /* Tier 1/2 图片 */
+      .image-item.tier-high {
+        width: 140px;
+        height: 140px;
+        border: 2px solid rgba(0, 255, 0, 0.6);
+        z-index: 10;
+      }
+
+      .image-item img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+        /* 默认模糊，只有放大后变清晰 */
+        filter: blur(2px) grayscale(0.8);
+        opacity: 0.6;
+        transition: filter 0.5s ease, opacity 0.5s ease;
+      }
+
+      /* 清晰状态 */
+      .image-item.sharp img {
+        filter: none;
+        opacity: 1;
+      }
+      
+      /* 极度缩小状态：只显示色块，隐藏图片以提升性能 */
+      .image-item.too-small img {
+        display: none;
+      }
+
+      /* Tier标签 - 只有放大时才显示 */
+      .tier-badge {
+        position: absolute;
+        top: 5px;
+        right: 5px;
+        background: rgba(0, 255, 0, 0.9);
+        color: #000;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-family: 'Orbitron', monospace;
+        font-size: 8px;
+        font-weight: 700;
+        z-index: 10;
+        display: none; /* 默认隐藏 */
+      }
+      
+      .canvas.zoomed-in .tier-badge {
+        display: block;
+      }
+
+      /* 图片信息覆盖层 - 只有放大时才显示 */
+      .image-overlay {
+        display: none;
+      }
+      
+      .canvas.zoomed-in .image-item:hover .image-overlay {
+        display: block;
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        background: rgba(0, 0, 0, 0.9);
+        padding: 8px;
+      }
+
+      .image-info {
+        font-family: 'Rajdhani', sans-serif;
+        font-size: 11px;
+        color: #fff;
+      }
+
+      .image-info .location {
+        color: #00ff00;
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+
+      .image-info .date {
+        color: #aaa;
+        font-size: 10px;
+      }
+
+      /* 模态框 */
+      .modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.95);
+        z-index: 2000;
+        overflow-y: auto;
+        animation: fadeIn 0.3s;
+      }
+
+      .modal.active {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 40px 20px;
+      }
+
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+        }
+        to {
+          opacity: 1;
+        }
+      }
+
+      .modal-content {
+        max-width: 700px;
+        width: 90%;
+        background: #111;
+        border: 2px solid #00ff00;
+        border-radius: 12px;
+        padding: 20px;
+        position: relative;
+        box-shadow: 0 0 40px rgba(0, 255, 0, 0.5);
+        max-height: 85vh;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .modal-close {
+        position: absolute;
+        top: 15px;
+        right: 15px;
+        background: transparent;
+        border: 2px solid #00ff00;
+        color: #00ff00;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        cursor: pointer;
+        font-size: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.3s;
+      }
+
+      .modal-close:hover {
+        background: #00ff00;
+        color: #000;
+      }
+
+      .modal-image {
+        width: 100%;
+        max-height: 400px;
+        object-fit: contain;
+        border-radius: 8px;
+        margin-bottom: 15px;
+      }
+
+      .modal-info {
+        font-family: 'Rajdhani', sans-serif;
+        overflow-y: auto;
+        flex: 1;
+      }
+
+      .modal-info h3 {
+        font-family: 'Orbitron', monospace;
+        font-size: 20px;
+        color: #00ff00;
+        margin-bottom: 12px;
+      }
+
+      .modal-info .info-row {
+        margin-bottom: 10px;
+        display: flex;
+        gap: 12px;
+        font-size: 14px;
+      }
+
+      .modal-info .info-label {
+        color: #00ff00;
+        font-weight: 600;
+        min-width: 80px;
+        flex-shrink: 0;
+      }
+
+      .modal-info .info-value {
+        color: #fff;
+        word-break: break-word;
+      }
+
+      .modal-link {
+        display: inline-block;
+        margin-top: 20px;
+        color: #00ff00;
+        text-decoration: none;
+        border: 1px solid #00ff00;
+        padding: 10px 20px;
+        border-radius: 4px;
+        transition: all 0.3s;
+      }
+
+      .modal-link:hover {
+        background: #00ff00;
+        color: #000;
+      }
+
+      /* 加载提示 */
+      #loading {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        color: #00ff00;
+        font-family: 'Orbitron', monospace;
+        font-size: 18px;
+        z-index: 999;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- 视图切换 -->
+    <div class="view-toggle">
+      <a href="index.html" class="toggle-option">Map</a>
+      <a href="#" class="toggle-option active">Gallery</a>
+    </div>
+
+    <div id="canvas-container">
+      <canvas id="bg-canvas"></canvas>
+      <div id="canvas" class="canvas"></div>
+    </div>
+
+    <!-- 加载提示 -->
+    <div id="loading">Loading...</div>
+
+    <!-- 画布容器 -->
+    <div id="canvas-container">
+      <div class="canvas" id="canvas"></div>
+    </div>
+
+    <!-- 模态框 -->
+    <div class="modal" id="image-modal">
+      <div class="modal-content">
+        <button class="modal-close" id="modal-close">×</button>
+        <img class="modal-image" id="modal-image" src="" alt="UFO Image" />
+        <div class="modal-info" id="modal-info"></div>
+      </div>
+    </div>
+
+    <script>
+      // ============================================
+      // Demo数据 - 模拟UFO图片数据
+      // ============================================
+      // 创建SVG占位符图片的函数
+      function createSVGPlaceholder(width, height, text, isTier) {
+        const bgColor = isTier ? '#001100' : '#111111';
+        const textColor = '#00ff00';
+        const borderColor = isTier ? '#00ff00' : '#003300';
+        const fontSize = isTier ? 32 : 20;
+        const smallFontSize = isTier ? 16 : 12;
+
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
+               <rect fill="${bgColor}" width="${width}" height="${height}" stroke="${borderColor}" stroke-width="2"/>
+               <text fill="${textColor}" font-family="monospace" font-size="${fontSize}" 
+                     x="50%" y="45%" text-anchor="middle" dy=".3em" font-weight="bold">${text}</text>
+               <text fill="${textColor}" font-family="monospace" font-size="${smallFontSize}" 
+                     x="50%" y="60%" text-anchor="middle" opacity="0.6">${width}x${height}</text>
+           </svg>`;
+
+        return 'data:image/svg+xml,' + encodeURIComponent(svg);
+      }
+
+      const demoData = [
+        // Tier 1/2 图片 - 会放大显示
+        {
+          Image_URL: createSVGPlaceholder(140, 140, 'TIER 1 UFO', true),
+          Date: '07/14/2024',
+          City: 'Phoenix',
+          State: 'AZ',
+          Shape: 'Triangle',
+          Summary: 'Multiple witnesses report triangular craft',
+          Is_High_Tier: true,
+        },
+        {
+          Image_URL: createSVGPlaceholder(140, 140, 'TIER 2 CRAFT', true),
+          Date: '08/22/2024',
+          City: 'Las Vegas',
+          State: 'NV',
+          Shape: 'Sphere',
+          Summary: 'Bright spherical object observed',
+          Is_High_Tier: true,
+        },
+        {
+          Image_URL: createSVGPlaceholder(140, 140, 'HIGH TIER', true),
+          Date: '09/10/2024',
+          City: 'Roswell',
+          State: 'NM',
+          Shape: 'Disk',
+          Summary: 'Classic disc-shaped craft sighting',
+          Is_High_Tier: true,
+        },
+        // 普通图片
+        {
+          Image_URL: createSVGPlaceholder(140, 140, 'UFO #1', false),
+          Date: '06/15/2024',
+          City: 'Los Angeles',
+          State: 'CA',
+          Shape: 'Light',
+          Summary: 'Bright light in night sky',
+          Is_High_Tier: false,
+        },
+        {
+          Image_URL: createSVGPlaceholder(140, 140, 'UFO #2', false),
+          Date: '07/20/2024',
+          City: 'Miami',
+          State: 'FL',
+          Shape: 'Unknown',
+          Summary: 'Unidentified object over ocean',
+          Is_High_Tier: false,
+        },
+        {
+          Image_URL: createSVGPlaceholder(140, 140, 'UFO #3', false),
+          Date: '08/05/2024',
+          City: 'Seattle',
+          State: 'WA',
+          Shape: 'Oval',
+          Summary: 'Oval-shaped object moving quickly',
+          Is_High_Tier: false,
+        },
+        {
+          Image_URL: createSVGPlaceholder(140, 140, 'UFO #4', false),
+          Date: '08/18/2024',
+          City: 'Chicago',
+          State: 'IL',
+          Shape: 'Cigar',
+          Summary: 'Cigar-shaped object hovering',
+          Is_High_Tier: false,
+        },
+        {
+          Image_URL: createSVGPlaceholder(140, 140, 'UFO #5', false),
+          Date: '09/01/2024',
+          City: 'Houston',
+          State: 'TX',
+          Shape: 'Fireball',
+          Summary: 'Fireball moving across sky',
+          Is_High_Tier: false,
+        },
+        {
+          Image_URL: createSVGPlaceholder(140, 140, 'UFO #6', false),
+          Date: '09/12/2024',
+          City: 'Portland',
+          State: 'OR',
+          Shape: 'Formation',
+          Summary: 'Multiple objects in formation',
+          Is_High_Tier: false,
+        },
+        {
+          Image_URL: createSVGPlaceholder(140, 140, 'UFO #7', false),
+          Date: '09/25/2024',
+          City: 'Denver',
+          State: 'CO',
+          Shape: 'Triangle',
+          Summary: 'Large triangular craft',
+          Is_High_Tier: false,
+        },
+        {
+          Image_URL: createSVGPlaceholder(140, 140, 'UFO #8', false),
+          Date: '10/03/2024',
+          City: 'Boston',
+          State: 'MA',
+          Shape: 'Sphere',
+          Summary: 'Luminous sphere observed',
+          Is_High_Tier: false,
+        },
+        {
+          Image_URL: createSVGPlaceholder(140, 140, 'UFO #9', false),
+          Date: '10/15/2024',
+          City: 'Atlanta',
+          State: 'GA',
+          Shape: 'Disk',
+          Summary: 'Flying disc reported',
+          Is_High_Tier: false,
+        },
+        {
+          Image_URL: createSVGPlaceholder(140, 140, 'UFO #10', false),
+          Date: '10/28/2024',
+          City: 'San Diego',
+          State: 'CA',
+          Shape: 'Unknown',
+          Summary: 'Unidentified aerial phenomenon',
+          Is_High_Tier: false,
+        },
+        {
+          Image_URL: createSVGPlaceholder(140, 140, 'UFO #11', false),
+          Date: '11/05/2024',
+          City: 'New York',
+          State: 'NY',
+          Shape: 'Light',
+          Summary: 'Bright light moving erratically',
+          Is_High_Tier: false,
+        },
+        {
+          Image_URL: createSVGPlaceholder(140, 140, 'UFO #12', false),
+          Date: '11/18/2024',
+          City: 'Dallas',
+          State: 'TX',
+          Shape: 'Unknown',
+          Summary: 'Strange object in sky',
+          Is_High_Tier: false,
+        },
+      ];
+
+      // ============================================
+      // 全局变量
+      // ============================================
+      let imageData = [];
+      let currentImage = null;
+      
+      // 加载占位图（简约静态背景）
+      const loadingSVG = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="140" height="140" viewBox="0 0 140 140">
+          <rect width="140" height="140" fill="#080808"/>
+          <!-- 简单的中心十字准星 -->
+          <line x1="60" y1="70" x2="80" y2="70" stroke="#1a1a1a" stroke-width="1"/>
+          <line x1="70" y1="60" x2="70" y2="80" stroke="#1a1a1a" stroke-width="1"/>
+          <!-- 边角装饰 -->
+          <path d="M10 10 L20 10 M10 10 L10 20" stroke="#1a1a1a" stroke-width="1" fill="none"/>
+          <path d="M130 10 L120 10 M130 10 L130 20" stroke="#1a1a1a" stroke-width="1" fill="none"/>
+          <path d="M10 130 L20 130 M10 130 L10 120" stroke="#1a1a1a" stroke-width="1" fill="none"/>
+          <path d="M130 130 L120 130 M130 130 L130 120" stroke="#1a1a1a" stroke-width="1" fill="none"/>
+        </svg>
+      `;
+      const loadingUrl = 'data:image/svg+xml,' + encodeURIComponent(loadingSVG);
+
+      // ============================================
+      // 初始化
+      // ============================================
+      function init() {
+        console.log('初始化开始...');
+
+        // 优先尝试加载CSV数据
+        loadImageData();
+      }
+
+      // ============================================
+      // 辅助函数
+      // ============================================
+      // 标准化Tier值检测（处理D3.js CSV中的字符串格式）
+      window.isTierValue = function(value) {
+        if (value === null || value === undefined || value === '') return false;
+        const str = String(value).toLowerCase().trim();
+        return str === 'true' || str === '1' || str === 'yes';
+      };
+
+      // ============================================
+      // 加载CSV数据（如果有）
+      // ============================================
+      async function loadImageData() {
+        try {
+          // 同时加载图片数据和Tier数据，以便匹配完整信息
+          // 优先使用完整数据文件ufo_data_tiered_full.csv，如果没有则使用ufo_data_tiered.csv
+          let tierCsv = null;
+          try {
+            tierCsv = await d3.csv('ufo_data_tiered_full.csv');
+            console.log('使用完整数据文件: ufo_data_tiered_full.csv');
+          } catch (e) {
+            try {
+              tierCsv = await d3.csv('ufo_data_tiered.csv');
+              console.log('使用数据文件: ufo_data_tiered.csv');
+            } catch (e2) {
+              console.log('未找到Tier数据文件，将只使用图片数据');
+            }
+          }
+          const imageCsv = await d3.csv('ufo_images.csv').catch(() => null);
+
+          if (!imageCsv || imageCsv.length === 0) {
+            throw new Error('没有图片数据');
+          }
+
+          console.log('成功加载CSV数据:', imageCsv.length, '条图片');
+
+          // 优化：只加载有图片的报告的Tier数据（提升性能）
+          // 先收集所有图片的Report_URL
+          const imageReportUrls = new Set(imageCsv.map(img => img.Report_URL).filter(url => url));
+          
+          // 如果有Tier数据，只匹配有图片的报告（而不是加载全部156k条）
+          let tierMap = new Map();
+          if (tierCsv) {
+            let matchedCount = 0;
+            tierCsv.forEach((row) => {
+              if (row.Report_Link && imageReportUrls.has(row.Report_Link)) {
+                tierMap.set(row.Report_Link, row);
+                matchedCount++;
+              }
+            });
+            console.log('优化：只加载了', matchedCount, '条有图片的Tier数据（共', tierCsv.length, '条）');
+          }
+
+          // 处理图片数据，合并Tier信息
+          imageCsv.forEach((img) => {
+            // 优先从Tier数据中获取正确的Is_High_Tier值
+            let isHighTier = false;
+
+            // 从Tier数据中获取真实值
+            if (tierMap.has(img.Report_URL)) {
+              const tierInfo = tierMap.get(img.Report_URL);
+              // 使用标准化函数检测Tier值（处理'true'/'false'字符串）
+              isHighTier = window.isTierValue(tierInfo.Is_High_Tier);
+
+              // 从Tier数据中填充信息（处理D3.js CSV中的空值情况）
+              if (!img.Date || img.Date === '' || img.Date === 'nan' || img.Date === 'NaN') {
+                img.Date = tierInfo.Date || '';
+              }
+              if (!img.City || img.City === '' || img.City === 'nan' || img.City === 'NaN') {
+                img.City = tierInfo.City || '';
+              }
+              if (!img.State || img.State === '' || img.State === 'nan' || img.State === 'NaN') {
+                img.State = tierInfo.State || '';
+              }
+              if (!img.Shape || img.Shape === '' || img.Shape === 'nan' || img.Shape === 'NaN') {
+                img.Shape = tierInfo.Shape || '';
+              }
+              if (!img.Summary || img.Summary === '' || img.Summary === 'nan' || img.Summary === 'NaN') {
+                img.Summary = tierInfo.Summary || '';
+              }
+            } else {
+              // 如果没有匹配到Tier数据，使用图片CSV中的值
+              isHighTier = window.isTierValue(img.Is_High_Tier);
+            }
+
+            img.Is_High_Tier = isHighTier;
+            if (isHighTier) {
+              img.Tier = 'Tier 1/2';
+            }
+          });
+
+          imageData = imageCsv;
+          renderGallery();
+          document.getElementById('loading').style.display = 'none';
+        } catch (error) {
+          console.log('CSV加载失败，使用demo数据:', error);
+          imageData = demoData;
+          renderGallery();
+          document.getElementById('loading').style.display = 'none';
+        }
+      }
+
+      // ============================================
+      // 虚拟滚动与缩放相关变量
+      // ============================================
+      let renderedItems = new Map(); // 已渲染的DOM元素缓存
+      // 延迟初始化 currentTransform，防止 d3 未加载时报错
+      let currentTransform = { k: 1, x: 0, y: 0 }; 
+      let isDragging = false; // 标记是否正在拖拽，用于区分点击和拖拽
+      const BUFFER_SIZE = 50; // 缓冲区大小
+      const BATCH_SIZE = 50; // 批量渲染大小
+      
+      // 图片缓存与加载队列 (用于Canvas层)
+      const imageCache = new Map(); // URL -> Image Object
+      const loadQueue = new Set();  // 待加载的URL集合
+      let isLoadingQueue = false;   // 是否正在处理队列
+      
+      // 布局参数
+      const GRID_SIZE = 150; // 网格大小
+      const IMAGE_SIZE = 140; // 图片大小
+      const PADDING = 100; // 画布内边距
+      let CANVAS_WIDTH = 10000; // 虚拟画布宽度（动态计算）
+      let COLS_PER_ROW = 0; // 每行多少列（动态计算）
+
+      // ============================================
+      // 初始化 D3 Zoom
+      // ============================================
+      function setupZoom() {
+        if (typeof d3 === 'undefined') {
+            console.error('D3.js 未加载');
+            return;
+        }
+        
+        // 确保 currentTransform 是 d3 对象
+        if (currentTransform.k === 1 && currentTransform.x === 0 && currentTransform.y === 0) {
+            currentTransform = d3.zoomIdentity;
+        }
+
+        const container = d3.select('#canvas-container');
+        const canvas = d3.select('#canvas');
+        const body = d3.select('body');
+
+        // 定义缩放行为
+        const zoom = d3.zoom()
+          .scaleExtent([0.01, 4]) // 扩大缩放范围以适应全屏
+          // 恢复默认行为：滚轮=缩放，拖拽=平移
+          .on('start', () => {
+            body.classed('grabbing', true);
+            isDragging = false; // 初始重置
+          })
+          .on('zoom', (event) => {
+            // 如果变换发生变化，标记为拖拽
+            if (event.transform.k !== currentTransform.k || 
+                event.transform.x !== currentTransform.x || 
+                event.transform.y !== currentTransform.y) {
+                isDragging = true;
+            }
+            
+            currentTransform = event.transform;
+            
+            // 应用变换到画布
+            canvas.style('transform', `translate(${currentTransform.x}px, ${currentTransform.y}px) scale(${currentTransform.k})`);
+            
+            // 如果是 WebGL 模式，同步 Pixi 容器
+            if (isWebGLMode && pixiContainer) {
+                pixiContainer.position.set(currentTransform.x, currentTransform.y);
+                pixiContainer.scale.set(currentTransform.k);
+            }
+            
+            // 根据缩放级别调整交互性
+            const isZoomedIn = currentTransform.k > 0.1;
+            canvas.classed('interactive', isZoomedIn);
+            canvas.classed('zoomed-in', currentTransform.k > 0.8);
+            
+            // 触发虚拟渲染更新（使用防抖）
+            updateVisibleArea();
+
+            // WebGL模式下的高清图加载逻辑
+            if (isWebGLMode) {
+                updateHighResImages();
+            }
+          })
+          .on('end', () => {
+            body.classed('grabbing', false);
+            // 延迟重置拖拽标记，确保点击事件能读取到正确的状态
+            setTimeout(() => { isDragging = false; }, 100);
+          });
+
+        // 应用缩放行为到容器
+        container.call(zoom);
+        
+        // 动态计算初始视图以适应屏幕
+        const totalRows = Math.ceil(imageData.length / COLS_PER_ROW);
+        const contentWidth = CANVAS_WIDTH;
+        const contentHeight = totalRows * GRID_SIZE + PADDING * 2;
+        
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        
+        // 计算适合屏幕的缩放比例 (类似 object-fit: cover，填满屏幕)
+        const scaleX = viewportWidth / contentWidth;
+        const scaleY = viewportHeight / contentHeight;
+        
+        // 使用 Math.max 选择较大的比例，确保填满屏幕
+        const initialScale = Math.max(scaleX, scaleY);
+        
+        // 居中显示
+        const initialX = (viewportWidth - contentWidth * initialScale) / 2;
+        const initialY = (viewportHeight - contentHeight * initialScale) / 2;
+        
+        console.log(`初始视图(Cover模式): Scale=${initialScale.toFixed(4)}, X=${initialX.toFixed(1)}, Y=${initialY.toFixed(1)}`);
+        
+        container.call(zoom.transform, d3.zoomIdentity.translate(initialX, initialY).scale(initialScale));
+      }
+
+      // WebGL模式下的高清图加载管理
+      let highResContainer = null;
+      let loadedHighResImages = new Map(); // 存储已加载的高清图Sprite
+
+      function updateHighResImages() {
+        // 如果缩放比例不够大，不加载高清图
+        // 阈值设为 1.5，意味着图片被放大到原始大小的1.5倍以上时才加载高清图
+        if (currentTransform.k < 3) {
+            // 清理所有高清图
+            if (highResContainer) {
+                highResContainer.removeChildren();
+                loadedHighResImages.clear();
+            }
+            return;
+        }
+
+        if (!highResContainer && pixiApp) {
+            highResContainer = new PIXI.Container();
+            // 确保高清图层在普通图层之上
+            pixiApp.stage.addChild(highResContainer);
+            // 同步变换
+            highResContainer.position.set(pixiContainer.position.x, pixiContainer.position.y);
+            highResContainer.scale.set(pixiContainer.scale.x);
+        }
+        
+        // 同步容器变换
+        if (highResContainer) {
+            highResContainer.position.set(currentTransform.x, currentTransform.y);
+            highResContainer.scale.set(currentTransform.k);
+        }
+
+        // 计算可见区域
+        const container = document.getElementById('canvas-container');
+        const width = container.clientWidth;
+        const height = container.clientHeight;
+        
+        const visibleLeft = (-currentTransform.x) / currentTransform.k;
+        const visibleTop = (-currentTransform.y) / currentTransform.k;
+        const visibleRight = (width - currentTransform.x) / currentTransform.k;
+        const visibleBottom = (height - currentTransform.y) / currentTransform.k;
+
+        // 找出可见区域内的图片
+        const visibleItems = [];
+        
+        // 遍历所有数据 (优化：可以使用网格索引加速，这里简单遍历)
+        // 由于我们有 gridPositionMap，可以只遍历可见网格
+        const startCol = Math.floor((visibleLeft - PADDING) / GRID_SIZE);
+        const endCol = Math.ceil((visibleRight - PADDING) / GRID_SIZE);
+        const startRow = Math.floor((visibleTop - PADDING) / GRID_SIZE);
+        const endRow = Math.ceil((visibleBottom - PADDING) / GRID_SIZE);
+
+        for (let row = startRow; row <= endRow; row++) {
+            for (let col = startCol; col <= endCol; col++) {
+                const key = `${row},${col}`;
+                if (gridPositionMap.has(key)) {
+                    const index = gridPositionMap.get(key);
+                    visibleItems.push(imageData[index]);
+                }
+            }
+        }
+
+        // 限制同时加载的高清图数量，防止内存爆炸
+        // 只加载中心区域的图片，或者限制总数
+        if (visibleItems.length > 20) {
+            // 如果可见图片太多，说明缩放还不够大，或者屏幕很大
+            // 这种情况下可能不需要加载高清图，或者只加载鼠标附近的
+            return; 
+        }
+
+        // 标记当前需要的图片
+        const neededImages = new Set();
+
+        visibleItems.forEach(item => {
+            neededImages.add(item.Image_URL);
+            
+            // 如果已经加载过，跳过
+            if (loadedHighResImages.has(item.Image_URL)) return;
+
+            // 加载高清图
+            const texture = PIXI.Texture.from(item.Image_URL);
+            const sprite = new PIXI.Sprite(texture);
+            
+            // 设置位置和大小
+            const pos = item._gridPosition;
+            const x = PADDING + pos.col * GRID_SIZE + (GRID_SIZE - IMAGE_SIZE) / 2;
+            const y = PADDING + pos.row * GRID_SIZE + (GRID_SIZE - IMAGE_SIZE) / 2;
+            
+            sprite.x = x;
+            sprite.y = y;
+            sprite.width = IMAGE_SIZE;
+            sprite.height = IMAGE_SIZE;
+            
+            // 初始透明，加载完成后显示
+            sprite.alpha = 0;
+            
+            // 监听加载完成
+            if (texture.baseTexture.valid) {
+                sprite.alpha = 1;
+            } else {
+                texture.baseTexture.on('loaded', () => {
+                    // 渐变显示
+                    let alpha = 0;
+                    const fade = () => {
+                        alpha += 0.1;
+                        sprite.alpha = alpha;
+                        if (alpha < 1) requestAnimationFrame(fade);
+                    };
+                    fade();
+                });
+            }
+
+            highResContainer.addChild(sprite);
+            loadedHighResImages.set(item.Image_URL, sprite);
+        });
+
+        // 清理不再可见的高清图
+        for (const [url, sprite] of loadedHighResImages.entries()) {
+            if (!neededImages.has(url)) {
+                highResContainer.removeChild(sprite);
+                sprite.destroy({ children: true, texture: false, baseTexture: false }); // 不销毁纹理缓存，以便复用
+                loadedHighResImages.delete(url);
+            }
+        }
+      }
+
+      // 计算可见区域并更新渲染
+      let updateTimeout;
+      function updateVisibleArea() {
+        if (updateTimeout) clearTimeout(updateTimeout);
+        
+        // 拖拽时快速响应，停止时进行完整渲染
+        updateTimeout = setTimeout(() => {
+          renderVisibleItems();
+        }, 50);
+      }
+
+      // 核心：根据Transform计算可见的网格范围
+      function renderVisibleItems() {
+        if (!imageData.length) return;
+
+        // 如果是 WebGL 模式，不需要 DOM 渲染逻辑
+        if (isWebGLMode) {
+            // 可以在这里添加 WebGL 特定的 LOD 逻辑，例如隐藏屏幕外的 Sprite
+            // 但 PixiJS 性能很好，通常不需要手动剔除，除非数量巨大
+            return;
+        }
+
+        const container = document.getElementById('canvas-container');
+        const width = container.clientWidth;
+        const height = container.clientHeight;
+        
+        // 绘制背景Canvas层 (处理缩放小于0.3的情况)
+        drawCanvasLayer(width, height);
+
+        // 反向计算：屏幕坐标 -> 画布坐标
+        // visible_x = (screen_x - translate_x) / scale
+        const visibleLeft = (-currentTransform.x) / currentTransform.k;
+        const visibleTop = (-currentTransform.y) / currentTransform.k;
+        const visibleRight = (width - currentTransform.x) / currentTransform.k;
+        const visibleBottom = (height - currentTransform.y) / currentTransform.k;
+
+        // 计算可见的行列范围
+        const startCol = Math.floor((visibleLeft - PADDING) / GRID_SIZE);
+        const endCol = Math.ceil((visibleRight - PADDING) / GRID_SIZE);
+        const startRow = Math.floor((visibleTop - PADDING) / GRID_SIZE);
+        const endRow = Math.ceil((visibleBottom - PADDING) / GRID_SIZE);
+
+        // 找出在这个范围内的所有图片索引
+        const visibleIndices = new Set();
+        
+        // 动态采样：如果缩放比例很小，跳过一些行和列以减少渲染数量
+        let step = 1;
+        // 更加激进的采样策略，防止初始加载卡死
+        if (currentTransform.k < 0.5) {
+            // 0.2 (初始) -> step 3 (只渲染 1/9)
+            // 0.4 -> step 2 (只渲染 1/4)
+            step = Math.floor(0.6 / currentTransform.k);
+            if (step < 1) step = 1;
+        }
+
+        // 安全限制：如果计算出的范围太大，强制增加步长
+        const totalCols = endCol - startCol;
+        const totalRows = endRow - startRow;
+        if ((totalCols * totalRows) / (step * step) > 1000) {
+            step = Math.ceil(Math.sqrt((totalCols * totalRows) / 800));
+        }
+        
+        // 如果缩放比例极小(<0.3)，我们完全依赖Canvas层，不渲染任何DOM元素
+        if (currentTransform.k < 0.3) {
+            // 清理所有DOM元素
+            renderedItems.forEach((el, index) => {
+                el.remove();
+                renderedItems.delete(index);
+            });
+            return; // 提前退出
+        }
+
+        // 更优化的方法：只遍历可见的行列
+        for (let row = Math.max(0, startRow - 1); row <= endRow + 1; row += step) {
+          for (let col = Math.max(0, startCol - 1); col <= endCol + 1; col += step) {
+            // 这里我们需要一个反向映射：(row, col) -> index
+            // 由于我们之前是顺序填充的，我们可以建立一个 Map
+            const key = `${row},${col}`;
+            if (gridPositionMap.has(key)) {
+              visibleIndices.add(gridPositionMap.get(key));
+            }
+          }
+        }
+
+        // 渲染可见项
+        visibleIndices.forEach(index => {
+          if (!renderedItems.has(index)) {
+            createImageItem(imageData[index], index);
+          }
+        });
+
+        // 清理不可见项
+        renderedItems.forEach((el, index) => {
+          if (!visibleIndices.has(index)) {
+            el.remove();
+            renderedItems.delete(index);
+          }
+        });
+
+        // 更新清晰度/LOD
+        updateLOD();
+      }
+      
+      // ============================================
+      // Canvas层绘制 (高性能模式)
+      // ============================================
+      function drawCanvasLayer(width, height) {
+        const bgCanvas = document.getElementById('bg-canvas');
+        if (!bgCanvas) return;
+        
+        const ctx = bgCanvas.getContext('2d');
+        
+        // 确保Canvas尺寸正确
+        if (bgCanvas.width !== width || bgCanvas.height !== height) {
+            bgCanvas.width = width;
+            bgCanvas.height = height;
+        }
+        
+        // 清空画布
+        ctx.clearRect(0, 0, width, height);
+        
+        ctx.save();
+        // 应用当前的变换
+        ctx.translate(currentTransform.x, currentTransform.y);
+        ctx.scale(currentTransform.k, currentTransform.k);
+        
+        // 优化：只绘制可见区域内的点
+        const visibleLeft = (-currentTransform.x) / currentTransform.k;
+        const visibleTop = (-currentTransform.y) / currentTransform.k;
+        const visibleRight = (width - currentTransform.x) / currentTransform.k;
+        const visibleBottom = (height - currentTransform.y) / currentTransform.k;
+        
+        const rectSize = IMAGE_SIZE; // 140
+        
+        // 清空待加载队列（因为可见区域变了，之前的可能不需要了）
+        loadQueue.clear();
+        
+        // 遍历所有数据点
+        imageData.forEach(item => {
+            const pos = item._gridPosition;
+            if (!pos) return;
+            
+            const x = PADDING + pos.col * GRID_SIZE + (GRID_SIZE - IMAGE_SIZE) / 2;
+            const y = PADDING + pos.row * GRID_SIZE + (GRID_SIZE - IMAGE_SIZE) / 2;
+            
+            // 检查是否在可见范围内
+            if (x + rectSize < visibleLeft || x > visibleRight || 
+                y + rectSize < visibleTop || y > visibleBottom) {
+                return;
+            }
+            
+            // 尝试绘制图片
+            let drawn = false;
+            if (imageCache.has(item.Image_URL)) {
+                const img = imageCache.get(item.Image_URL);
+                if (img.complete && img.naturalWidth > 0) {
+                    // 绘制图片
+                    try {
+                        ctx.drawImage(img, x, y, rectSize, rectSize);
+                        drawn = true;
+                        
+                        // 如果是高亮Tier，加个边框
+                        if (window.isTierValue(item.Is_High_Tier)) {
+                            ctx.strokeStyle = 'rgba(0, 255, 0, 0.8)';
+                            ctx.lineWidth = 4; // 放大边框以便看清
+                            ctx.strokeRect(x, y, rectSize, rectSize);
+                        }
+                    } catch(e) {
+                        // 忽略绘制错误
+                    }
+                }
+            }
+            
+            // 如果没画图片，画占位块
+            if (!drawn) {
+                if (window.isTierValue(item.Is_High_Tier)) {
+                    ctx.fillStyle = 'rgba(0, 255, 0, 0.2)';
+                    ctx.fillRect(x, y, rectSize, rectSize);
+                    ctx.strokeStyle = 'rgba(0, 255, 0, 0.5)';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(x, y, rectSize, rectSize);
+                } else {
+                    ctx.fillStyle = '#1a1a1a';
+                    ctx.fillRect(x, y, rectSize, rectSize);
+                }
+                
+                // 添加到加载队列 (如果队列不太长)
+                if (loadQueue.size < 50) {
+                    loadQueue.add(item.Image_URL);
+                }
+            }
+        });
+        
+        ctx.restore();
+        
+        // 触发队列处理
+        processLoadQueue();
+      }
+      
+      // 处理加载队列
+      function processLoadQueue() {
+        if (isLoadingQueue || loadQueue.size === 0) return;
+        
+        isLoadingQueue = true;
+        
+        // 取出一个URL
+        const url = loadQueue.values().next().value;
+        loadQueue.delete(url);
+        
+        // 检查是否已缓存
+        if (imageCache.has(url)) {
+            isLoadingQueue = false;
+            processLoadQueue(); // 继续下一个
+            return;
+        }
+        
+        const img = new Image();
+        img.onload = () => {
+            imageCache.set(url, img);
+            isLoadingQueue = false;
+            
+            // 只有当图片在当前视野内时才重绘，避免频繁重绘
+            // 这里简单起见，直接重绘Canvas层
+            const container = document.getElementById('canvas-container');
+            if (container) {
+                requestAnimationFrame(() => {
+                    drawCanvasLayer(container.clientWidth, container.clientHeight);
+                });
+            }
+            
+            // 继续处理队列
+            // 使用 setTimeout 给主线程喘息机会
+            setTimeout(processLoadQueue, 10);
+        };
+        img.onerror = () => {
+            // 标记为错误，避免重复加载
+            imageCache.set(url, { complete: true, naturalWidth: 0 }); 
+            isLoadingQueue = false;
+            setTimeout(processLoadQueue, 10);
+        };
+        
+        img.src = url;
+      }
+
+      // 更新细节级别 (Level of Detail)
+      function updateLOD() {
+        const scale = currentTransform.k;
+        
+        renderedItems.forEach((el, index) => {
+          // 策略：
+          // scale < 0.3: 极小，只显示色块，不加载图片 (提高阈值到0.3)
+          // 0.3 <= scale < 0.6: 加载图片，显示模糊图
+          // scale >= 0.6: 显示清晰图
+          
+          let img = el.querySelector('img');
+          
+          if (scale < 0.3) {
+            el.classList.add('too-small');
+            // 如果存在图片元素，移除它以节省内存和渲染
+            if (img) {
+                img.remove();
+            }
+          } else {
+            el.classList.remove('too-small');
+            
+            // 如果图片不存在，创建它
+            if (!img) {
+                const item = imageData[index];
+                img = document.createElement('img');
+                img.src = item.Image_URL;
+                img.alt = 'UFO';
+                img.loading = 'lazy';
+                
+                // 错误处理
+                img.onerror = function() {
+                    this.style.display = 'none';
+                };
+                
+                // 插入到 overlay 之前
+                const overlay = el.querySelector('.image-overlay');
+                if (overlay) {
+                    el.insertBefore(img, overlay);
+                } else {
+                    el.appendChild(img);
+                }
+            }
+            
+            if (scale > 0.6) {
+              el.classList.add('sharp');
+              img.classList.remove('blurred');
+            } else {
+              el.classList.remove('sharp');
+              img.classList.add('blurred');
+            }
+          }
+        });
+      }
+
+      // 全局网格位置映射
+      let gridPositionMap = new Map();
+
+      // ============================================
+      // 创建图片项
+      // ============================================
+      function createImageItem(item, index) {
+        const canvas = document.getElementById('canvas');
+        
+        if (renderedItems.has(index)) return;
+        
+        const pos = item._gridPosition;
+        if (!pos) return;
+
+        const x = PADDING + pos.col * GRID_SIZE + (GRID_SIZE - IMAGE_SIZE) / 2;
+        const y = PADDING + pos.row * GRID_SIZE + (GRID_SIZE - IMAGE_SIZE) / 2;
+        
+        const div = document.createElement('div');
+        const isTier = window.isTierValue(item.Is_High_Tier);
+        
+        div.className = `image-item ${isTier ? 'tier-high' : 'normal'}`;
+        div.style.left = x + 'px';
+        div.style.top = y + 'px';
+        div.dataset.index = index;
+        
+        // 设置加载占位背景
+        div.style.backgroundImage = `url('${loadingUrl}')`;
+        div.style.backgroundSize = 'cover';
+        div.style.backgroundPosition = 'center';
+
+        // 初始状态根据当前缩放级别决定
+        const scale = currentTransform.k;
+        
+        // 只有在缩放比例足够大时才创建图片元素
+        // 提高阈值到 0.3，初始状态(0.2)不创建图片
+        if (scale >= 0.3) {
+            // 创建图片元素
+            const img = document.createElement('img');
+            img.src = item.Image_URL;
+            img.alt = 'UFO';
+            img.loading = 'lazy'; 
+            
+            if (scale > 0.6) {
+                div.classList.add('sharp');
+                img.classList.remove('blurred');
+            } else {
+                img.classList.add('blurred');
+            }
+
+            // 错误处理
+            img.onerror = function() {
+                this.style.display = 'none'; 
+            };
+            
+            div.appendChild(img);
+        } else {
+            div.classList.add('too-small');
+        }
+
+        const overlay = document.createElement('div');
+        overlay.className = 'image-overlay';
+        overlay.innerHTML = `
+            <div class="image-info">
+                <div class="location">${item.City || ''}, ${item.State || ''}</div>
+                <div class="date">${item.Date || ''}</div>
+            </div>
+        `;
+
+        if (isTier) {
+          const badge = document.createElement('div');
+          badge.className = 'tier-badge';
+          badge.textContent = 'TIER 1/2';
+          div.appendChild(badge);
+        }
+
+        div.appendChild(overlay);
+
+        // 点击事件 - 只有在交互模式下才触发
+        div.addEventListener('click', (e) => {
+            // 检查当前是否允许交互，且不是拖拽操作
+            if (currentTransform.k > 0.1 && !isDragging) {
+                e.stopPropagation(); // 防止触发zoom的点击
+                showModal(item);
+            }
+        });
+
+        canvas.appendChild(div);
+        renderedItems.set(index, div);
+      }
+
+      // ============================================
+      // WebGL / PixiJS 相关变量
+      // ============================================
+      let pixiApp = null;
+      let pixiContainer = null;
+      let spriteManifest = null;
+      let atlasTextures = new Map();
+      let isWebGLMode = false;
+
+      // ============================================
+      // 尝试初始化 WebGL 模式
+      // ============================================
+      async function initWebGL() {
+        try {
+            // 尝试加载清单文件
+            const response = await fetch('sprites/manifest.json');
+            if (!response.ok) throw new Error('Manifest not found');
+            spriteManifest = await response.json();
+            
+            console.log('找到 Sprite Sheet 清单，启用 WebGL 模式');
+            isWebGLMode = true;
+            
+            // 初始化 PixiJS
+            const container = document.getElementById('canvas-container');
+            pixiApp = new PIXI.Application({
+                width: container.clientWidth,
+                height: container.clientHeight,
+                backgroundAlpha: 0, // 透明背景
+                resolution: window.devicePixelRatio || 1,
+                autoDensity: true,
+                antialias: true
+            });
+            
+            // 插入到背景层
+            const bgCanvas = document.getElementById('bg-canvas');
+            if (bgCanvas) bgCanvas.remove(); // 移除旧的 Canvas 层
+            
+            // 将 Pixi Canvas 插入到最底层
+            pixiApp.view.id = 'pixi-canvas';
+            pixiApp.view.style.position = 'absolute';
+            pixiApp.view.style.top = '0';
+            pixiApp.view.style.left = '0';
+            pixiApp.view.style.zIndex = '0';
+            container.insertBefore(pixiApp.view, container.firstChild);
+            
+            pixiContainer = new PIXI.Container();
+            pixiApp.stage.addChild(pixiContainer);
+            
+            // 加载纹理图集
+            await loadAtlases();
+            
+            // 创建精灵
+            createSprites();
+            
+            return true;
+        } catch (e) {
+            console.log('WebGL 模式初始化失败 (可能是没有生成 Sprite Sheets):', e);
+            isWebGLMode = false;
+            return false;
+        }
+      }
+
+      async function loadAtlases() {
+        // 找出所有需要加载的图集文件
+        const atlasIndices = new Set(spriteManifest.map(item => item.atlas_index));
+        const promises = [];
+        
+        for (let idx of atlasIndices) {
+            const url = `sprites/atlas_${idx}.jpg`;
+            promises.push(PIXI.Assets.load(url).then(texture => {
+                atlasTextures.set(idx, texture);
+            }));
+        }
+        
+        await Promise.all(promises);
+        console.log('所有图集加载完成');
+      }
+
+      function createSprites() {
+        // 创建原始索引映射表，因为imageData已经被排序了
+        const originalIndexMap = new Map();
+        imageData.forEach(item => {
+            if (item._sortIndex !== undefined) {
+                originalIndexMap.set(item._sortIndex, item);
+            }
+        });
+
+        spriteManifest.forEach(item => {
+            const atlasTexture = atlasTextures.get(item.atlas_index);
+            if (!atlasTexture) return;
+            
+            // 创建裁剪纹理
+            const frame = new PIXI.Rectangle(
+                item.u * atlasTexture.width,
+                item.v * atlasTexture.height,
+                item.w * atlasTexture.width,
+                item.h * atlasTexture.height
+            );
+            
+            const texture = new PIXI.Texture(atlasTexture.baseTexture, frame);
+            const sprite = new PIXI.Sprite(texture);
+            
+            // 计算位置 (使用原始数据的网格位置)
+            // 使用映射表查找对应的原始数据对象
+            const originalData = originalIndexMap.get(item.original_index);
+            if (!originalData) return;
+            
+            // 获取之前计算的网格位置
+            // 注意：这需要在 renderGallery 计算完网格后调用
+            const pos = originalData._gridPosition;
+            if (!pos) return;
+
+            const x = PADDING + pos.col * GRID_SIZE + (GRID_SIZE - IMAGE_SIZE) / 2;
+            const y = PADDING + pos.row * GRID_SIZE + (GRID_SIZE - IMAGE_SIZE) / 2;
+            
+            sprite.x = x;
+            sprite.y = y;
+            sprite.width = IMAGE_SIZE;
+            sprite.height = IMAGE_SIZE;
+            
+            // 如果是 Tier 1/2，添加绿色边框
+            if (window.isTierValue(originalData.Is_High_Tier)) {
+                const border = new PIXI.Graphics();
+                // 线宽4，颜色绿色(0x00ff00)，不透明度0.8
+                // 注意：由于Sprite可能会被缩放，这里直接画在Sprite内部坐标系
+                // Sprite大小是 IMAGE_SIZE x IMAGE_SIZE (140x140)
+                // 但是Sprite的纹理可能不是这个大小，Sprite被缩放了以适应 140x140
+                // PIXI.Sprite 的 width/height 是缩放后的属性。
+                // 如果我们把 border 加为 child，它会受到父级(Sprite) scale 的影响。
+                // 最好是创建一个 Container 来包裹 Sprite 和 Border，或者直接画在 Sprite 上但要考虑 scale。
+                
+                // 简单做法：直接作为子对象，但要反向缩放线宽？
+                // 不，PIXI.Sprite 的 width/height 设置其实是修改 scale。
+                // 比如纹理是 200x200，设置 width=140，scale 就是 0.7。
+                // 此时子对象也会被缩放 0.7。
+                // 所以如果我们想要 4px 的边框，我们需要画 4 / 0.7 px 的线宽。
+                
+                const scaleX = IMAGE_SIZE / texture.width;
+                const scaleY = IMAGE_SIZE / texture.height;
+                
+                border.lineStyle(4 / scaleX, 0x00ff00, 0.8); 
+                // 绘制矩形，大小为纹理的原始大小
+                border.drawRect(0, 0, texture.width, texture.height);
+                
+                sprite.addChild(border);
+            }
+            
+            // 交互
+            sprite.eventMode = 'static';
+            sprite.cursor = 'pointer';
+            sprite.on('pointertap', () => {
+                // 只有在非拖拽状态下才触发点击
+                if (currentTransform.k > 0.1 && !isDragging) {
+                    showModal(originalData);
+                }
+            });
+            
+            // 存储引用以便后续更新（如LOD）
+            originalData._sprite = sprite;
+            
+            pixiContainer.addChild(sprite);
+        });
+      }
+
+      // ============================================
+      // 渲染图片到画布 - D3 Zoom 版本
+      // ============================================
+      async function renderGallery() {
+        try {
+            console.log('开始渲染画廊（无限画布模式），图片数量:', imageData.length);
+            const container = document.getElementById('canvas-container');
+            const canvas = document.getElementById('canvas');
+            
+            if (!canvas) throw new Error('Canvas element not found');
+            
+            canvas.innerHTML = '';
+            renderedItems.clear();
+            gridPositionMap.clear();
+
+            // 辅助函数：解析日期
+            function parseDate(dateStr) {
+              if (!dateStr) return 0;
+              try {
+                const datePart = String(dateStr).split(' ')[0];
+                const parts = datePart.split('/');
+                if (parts.length === 3) {
+                  return new Date(parts[2], parts[0] - 1, parts[1]).getTime();
+                }
+                return new Date(dateStr).getTime() || 0;
+              } catch { return 0; }
+            }
+
+            // 排序
+            imageData.forEach((item, index) => {
+              item._sortIndex = index;
+              item._parsedDate = parseDate(item.Date);
+            });
+
+            imageData.sort((a, b) => {
+              const dateA = a._parsedDate || 0;
+              const dateB = b._parsedDate || 0;
+              if (dateA > 0 && dateB > 0) return dateB - dateA;
+              if (dateA > 0) return -1;
+              if (dateB > 0) return 1;
+              return (a._sortIndex || 0) - (b._sortIndex || 0);
+            });
+
+            // 计算网格布局
+            // 目标长宽比：16:9 (约1.77)
+            const targetRatio = 16 / 9;
+            const totalImages = imageData.length;
+            
+            // 计算列数：Cols = sqrt(Total * Ratio)
+            COLS_PER_ROW = Math.ceil(Math.sqrt(totalImages * targetRatio));
+            if (COLS_PER_ROW < 1) COLS_PER_ROW = 1;
+            
+            // 根据列数反推画布宽度
+            CANVAS_WIDTH = COLS_PER_ROW * GRID_SIZE + PADDING * 2;
+            
+            console.log(`布局计算: ${totalImages} 张图片, ${COLS_PER_ROW} 列, 目标比例 16:9`);
+            
+            // 简单的顺序填充布局
+            let currentRow = 0;
+            let currentCol = 0;
+
+            imageData.forEach((item, index) => {
+                item._gridPosition = { row: currentRow, col: currentCol };
+                
+                // 记录反向映射
+                gridPositionMap.set(`${currentRow},${currentCol}`, index);
+                
+                currentCol++;
+                if (currentCol >= COLS_PER_ROW) {
+                    currentCol = 0;
+                    currentRow++;
+                }
+            });
+
+            // 尝试初始化 WebGL
+            await initWebGL();
+
+            // 初始化 Zoom
+            setupZoom();
+            
+            // 初始渲染
+            renderVisibleItems();
+            
+        } catch (e) {
+            console.error('渲染画廊时出错:', e);
+            // 确保出错时也隐藏loading，避免死循环
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('loading').textContent = 'Error: ' + e.message;
+            document.getElementById('loading').style.color = 'red';
+            document.getElementById('loading').style.display = 'block';
+        }
+      }
+
+      // ============================================
+      // 显示模态框
+      // ============================================
+      function showModal(item) {
+        currentImage = item;
+        const modal = document.getElementById('image-modal');
+        const modalImage = document.getElementById('modal-image');
+        const modalInfo = document.getElementById('modal-info');
+
+        modalImage.src = item.Image_URL;
+
+        modalInfo.innerHTML = `
+              <h3>UFO Sighting Details</h3>
+              <div class="info-row">
+                  <span class="info-label">Date:</span>
+                  <span class="info-value">${item.Date || 'Unknown'}</span>
+              </div>
+              <div class="info-row">
+                  <span class="info-label">Location:</span>
+                  <span class="info-value">${((item.City || '') + (item.City && item.State ? ', ' : '') + (item.State || '')).trim() || 'Unknown'}</span>
+              </div>
+              <div class="info-row">
+                  <span class="info-label">Shape:</span>
+                  <span class="info-value">${item.Shape || 'Unknown'}</span>
+              </div>
+              <div class="info-row">
+                  <span class="info-label">Tier:</span>
+                  <span class="info-value" style="color: ${window.isTierValue(item.Is_High_Tier) ? '#00ff00' : '#aaa'}">
+                      ${window.isTierValue(item.Is_High_Tier) ? 'Tier 1/2' : 'Normal'}
+                  </span>
+              </div>
+              ${
+                item.Summary
+                  ? `
+              <div class="info-row">
+                  <span class="info-label">Summary:</span>
+                  <span class="info-value">${item.Summary}</span>
+              </div>
+              `
+                  : ''
+              }
+          `;
+
+        modal.classList.add('active');
+        document.body.style.overflow = 'hidden';
+      }
+
+      // ============================================
+      // 关闭模态框
+      // ============================================
+      function closeModal() {
+        const modal = document.getElementById('image-modal');
+        modal.classList.remove('active');
+        // 保持画布模式的 hidden 状态
+        document.body.style.overflow = 'hidden';
+      }
+
+      // ============================================
+      // 事件绑定
+      // ============================================
+      document.getElementById('modal-close').addEventListener('click', closeModal);
+
+      document.getElementById('image-modal').addEventListener('click', (e) => {
+        if (e.target.id === 'image-modal') {
+          closeModal();
+        }
+      });
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          closeModal();
+        }
+      });
+
+      // ============================================
+      // 启动 - 立即执行
+      // ============================================
+      console.log('脚本开始执行');
+
+      // 等待DOM完全加载
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function () {
+          console.log('DOMContentLoaded触发');
+          setTimeout(init, 50);
+        });
+      } else {
+        console.log('DOM已加载，立即初始化');
+        setTimeout(init, 50);
+      }
+    </script>
+  </body>
+</html>

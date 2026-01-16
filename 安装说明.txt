@@ -1,0 +1,44 @@
+===============================================
+Selenium安装说明
+===============================================
+
+由于环境限制，请按以下步骤手动安装：
+
+1. 安装Selenium Python包
+   在终端运行：
+   pip3 install selenium
+
+   如果遇到权限问题，尝试：
+   pip3 install selenium --user
+   或
+   sudo pip3 install selenium
+
+2. 安装ChromeDriver
+
+   方式1（推荐，使用Homebrew）：
+   brew install chromedriver
+
+   方式2（手动下载）：
+   - 访问：https://chromedriver.chromium.org/downloads
+   - 下载对应Chrome版本的ChromeDriver
+   - 解压后将chromedriver放到以下任一位置：
+     * /usr/local/bin/ （需要sudo权限）
+     * 项目目录（当前文件夹）
+     * 或添加到PATH环境变量
+
+3. 验证安装
+   
+   测试Selenium：
+   python3 -c "import selenium; print('Selenium已安装')"
+   
+   测试ChromeDriver：
+   chromedriver --version
+
+4. 运行爬虫脚本
+   
+   python3 scrape_all_paginated.py
+
+===============================================
+注意：如果没有安装Homebrew，可以先安装：
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+===============================================

@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>UFO Sightings Interactive Map</title>
+
+    <!-- Google Fonts - 数码感字体 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Rajdhani:wght@300;400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
+
+    <!-- Mapbox GL JS -->
+    <script src="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.js"></script>
+    <link href="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.css" rel="stylesheet" />
+
+    <!-- D3.js v7 -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: 'Arial', sans-serif;
+        overflow: hidden;
+        background: #000000;
+      }
+
+      /* 地图容器 */
+      #map {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 100%;
+      }
+
+      /* 主标题 - ASCII Art 风格 */
+      #main-title {
+        position: absolute;
+        top: 20px;
+        left: 30px;
+        font-family: 'Courier New', Courier, monospace; /* 必须使用等宽字体 */
+        font-weight: bold;
+        color: #00ff00;
+        text-shadow: 0 0 5px #00ff00, 0 0 10px #00ff00; /* 绿色荧光 */
+        z-index: 1000;
+        pointer-events: none;
+        display: flex;
+        flex-direction: row;
+        gap: 30px; /* 可以在移动端调整 */
+        text-align: left;
+        /* 响应式字体大小，确保 ASCII Art 不会换行 */
+        font-size: clamp(4px, 0.6vw, 10px);
+        line-height: 1.1;
+        opacity: 0.9;
+      }
+      
+      .ascii-block {
+        white-space: pre;
+      }
+
+      /* 年份显示大标题 */
+      #year-display {
+        position: absolute;
+        top: 140px;
+        left: 30px;
+        font-family: 'Courier New', Courier, monospace;
+        font-weight: bold;
+        color: #00ff00;
+        text-shadow: 0 0 5px #00ff00, 0 0 10px #00ff00;
+        z-index: 1000;
+        pointer-events: none;
+        white-space: pre;
+        text-align: left;
+        font-size: clamp(4px, 0.6vw, 10px);
+        line-height: 1.1;
+        opacity: 0.9;
+      }
+
+      /* 视图切换 Toggle */
+      .view-toggle {
+        position: absolute;
+        top: 30px;
+        right: 30px;
+        display: flex;
+        background: rgba(0, 0, 0, 0.9);
+        border: 1px solid #00ff00;
+        z-index: 1000;
+        box-shadow: 0 0 10px rgba(0, 255, 0, 0.2);
+      }
+
+      .toggle-option {
+        padding: 10px 20px;
+        color: rgba(0, 255, 0, 0.5);
+        text-decoration: none;
+        font-family: 'Arimo', sans-serif;
+        font-size: 13px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        transition: all 0.2s;
+        border-right: 1px solid rgba(0, 255, 0, 0.3);
+        background: transparent;
+      }
+
+      .toggle-option:last-child {
+        border-right: none;
+      }
+
+      .toggle-option:hover {
+        color: #00ff00;
+        background: rgba(0, 255, 0, 0.1);
+        box-shadow: 0 0 15px rgba(0, 255, 0, 0.4);
+      }
+
+      .toggle-option.active {
+        background: #00ff00;
+        color: #000000;
+        box-shadow: 0 0 15px rgba(0, 255, 0, 0.6);
+      }
+
+      /* 控制面板 - 紧凑型播放条 */
+      #controls {
+        position: absolute;
+        bottom: 40px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 90%;
+        max-width: 800px;
+        background: rgba(0, 0, 0, 0.85);
+        border: 1px solid #00ff00;
+        border-radius: 50px; /* 圆角胶囊状 */
+        padding: 10px 25px;
+        z-index: 1000;
+        box-shadow: 0 0 15px rgba(0, 255, 0, 0.3);
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        backdrop-filter: blur(5px);
+      }
+
+      /* 时间滑块容器 */
+      #slider-container {
+        flex-grow: 1;
+        margin-bottom: 0;
+        display: flex;
+        align-items: center;
+        order: 2; /* 中间 */
+      }
+
+      /* 时间滑块 */
+      #time-slider {
+        width: 100%;
+        height: 4px; /* 变细 */
+        border-radius: 2px;
+        background: #333;
+        outline: none;
+        -webkit-appearance: none;
+        cursor: pointer;
+      }
+
+      #time-slider::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 14px; /* 变小 */
+        height: 14px;
+        border-radius: 50%;
+        background: #00ff00;
+        cursor: pointer;
+        box-shadow: 0 0 8px #00ff00;
+        margin-top: -5px; /* 垂直居中修正 */
+      }
+
+      #time-slider::-moz-range-thumb {
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: #00ff00;
+        cursor: pointer;
+        border: none;
+        box-shadow: 0 0 8px #00ff00;
+      }
+
+      /* 控制按钮组 */
+      #controls-buttons {
+        display: flex;
+        gap: 10px;
+        margin-top: 0;
+        order: 1; /* 最左侧 */
+      }
+
+      .control-btn {
+        padding: 6px 12px; /* 减小内边距 */
+        background: rgba(0, 255, 0, 0.1);
+        border: 1px solid #00ff00;
+        color: #00ff00;
+        cursor: pointer;
+        border-radius: 4px;
+        font-size: 12px; /* 减小字体 */
+        font-family: 'Share Tech Mono', monospace;
+        text-transform: uppercase;
+        transition: all 0.2s;
+        min-width: 40px; /* 保证最小宽度 */
+        display: flex;
+        justify-content: center;
+        align-items: center;
+      }
+
+      .control-btn:hover {
+        background: rgba(0, 255, 0, 0.3);
+        box-shadow: 0 0 8px #00ff00;
+      }
+
+      .control-btn.active {
+        background: #00ff00;
+        color: #000000;
+      }
+
+      /* 时间范围显示 */
+      #time-range {
+        color: #00ff00;
+        font-size: 14px;
+        font-family: 'Share Tech Mono', monospace;
+        margin-top: 0;
+        order: 3; /* 最右侧 */
+        white-space: nowrap;
+        min-width: 130px;
+        text-align: right;
+      }
+
+      /* Mapbox Popup 自定义样式 */
+      .mapboxgl-popup-content {
+        background: rgba(0, 0, 0, 0.9) !important;
+        border: 1px solid #00ff00;
+        border-radius: 5px;
+        color: #00ff00;
+        padding: 15px;
+        font-family: 'Courier New', monospace;
+        box-shadow: 0 0 15px rgba(0, 255, 0, 0.5);
+      }
+
+      .mapboxgl-popup-tip {
+        border-top-color: #00ff00 !important;
+      }
+
+      .popup-content {
+        line-height: 1.6;
+      }
+
+      .popup-content strong {
+        color: #00ffff;
+      }
+
+      /* 加载提示 */
+      #loading {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        color: #00ff00;
+        font-size: 24px;
+        z-index: 2000;
+        text-align: center;
+      }
+
+      #loading::after {
+        content: '...';
+        animation: dots 1.5s steps(4, end) infinite;
+      }
+
+      @keyframes dots {
+        0%,
+        20% {
+          content: '.';
+        }
+        40% {
+          content: '..';
+        }
+        60%,
+        100% {
+          content: '...';
+        }
+      }
+
+      /* ============================================
+         移动端响应式设计 (Responsive Design)
+      ============================================ */
+      @media (max-width: 768px) {
+        /* 1. 调整标题位置和大小 - 换行布局 */
+        #main-title {
+          top: 10px;
+          left: 10px;
+          flex-direction: column; /* 垂直排列 */
+          gap: 5px;
+          transform: none; /* 移除缩放 */
+          width: auto;
+          z-index: 10;
+        }
+        
+        #main-title, .ascii-block {
+           font-size: 6px !important; /* 固定小字体以适应屏幕宽度 */
+           line-height: 1.0;
+        }
+
+        #year-display {
+          top: 160px; /* 增加到130px以避开两行堆叠的ASCII标题 */
+          left: 10px;
+          font-size: 6px !important; /* 与标题保持一致 */
+          transform: none;
+        }
+
+        /* 2. 调整切换按钮 */
+        .view-toggle {
+          top: 10px;
+          right: 10px;
+          z-index: 2000; /* 确保在最顶层但不遮挡标题(因为标题变小了) */
+        }
+        .toggle-option {
+          padding: 4px 10px;
+          font-size: 10px;
+        }
+
+        /* 3. 调整控制面板布局 */
+        #controls {
+          width: 95%;
+          bottom: 25px;
+          padding: 10px 15px;
+          flex-wrap: wrap; /* 允许换行 */
+          gap: 10px;
+          border-radius: 20px;
+        }
+
+        /* 第一行：按钮组 (占满整行) */
+        #controls-buttons {
+          width: 100%;
+          justify-content: space-between;
+          order: 1;
+        }
+
+        .control-btn {
+          flex: 1; /* 按钮平分宽度 */
+          font-size: 10px;
+          padding: 8px 0;
+          min-width: auto;
+        }
+
+        /* 第二行：滑块 (占大部分) */
+        #slider-container {
+          width: 65%;
+          order: 2;
+        }
+
+        /* 第二行：时间文字 (占小部分) */
+        #time-range {
+          width: 35%;
+          order: 3;
+          font-size: 11px;
+          text-align: right;
+          min-width: auto;
+        }
+
+        /* 4. 调整 Popup 大小 */
+        .mapboxgl-popup {
+          max-width: 200px !important;
+        }
+        .mapboxgl-popup-content {
+          padding: 10px;
+          font-size: 11px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- 加载提示 -->
+    <div id="loading">Loading UFO Data</div>
+
+    <!-- 视图切换 -->
+    <div class="view-toggle">
+      <a href="#" class="toggle-option active">Map</a>
+      <a href="gallery.html" class="toggle-option">Gallery</a>
+    </div>
+
+    <!-- 主标题 (ASCII Art) -->
+    <div id="main-title">
+      <div class="ascii-block">
+888     888 8888888888 .d88888b.
+888     888 888        d88P" "Y88b
+888     888 888        888     888
+888     888 8888888    888     888
+888     888 888        888     888
+888     888 888        888     888
+Y88b. .d88P 888        Y88b. .d88P
+ "Y88888P"  888         "Y88888P"
+      </div>
+      <div class="ascii-block">
+        d8888 8888888b.   .d8888b.  888    888 888 888     888 8888888888
+       d88888 888   Y88b d88P  Y88b 888    888 888 888     888 888       
+      d88P888 888    888 888    888 888    888 888 888     888 888       
+     d88P 888 888   d88P 888        8888888888 888 Y88b   d88P 8888888   
+    d88P  888 8888888P"  888        888    888 888  Y88b d88P  888       
+   d88P   888 888 T88b   888    888 888    888 888   Y88o88P   888       
+  d8888888888 888  T88b  Y88b  d88P 888    888 888    Y888P    888       
+ d88P     888 888   T88b  "Y8888P"  888    888 888     Y8P     8888888888
+      </div>
+    </div>
+
+    <!-- 年月显示 -->
+    <div id="year-display">1960-01</div>
+
+    <!-- 地图容器 -->
+    <div id="map"></div>
+
+    <!-- 控制面板 -->
+    <div id="controls">
+      <div id="slider-container">
+        <input type="range" id="time-slider" min="0" max="100" value="0" step="1" />
+      </div>
+      <div id="time-range"><span id="current-year">1960-01</span> / <span id="max-year">2025-12</span></div>
+      <div id="controls-buttons">
+        <button class="control-btn" id="play-pause-btn">▶ Play</button>
+        <button class="control-btn" id="reset-btn">⏮ Reset</button>
+        <button class="control-btn" id="speed-btn">Speed: 1x</button>
+      </div>
+    </div>
+
+    <script>
+      // ============================================
+      // Mapbox 配置
+      // ============================================
+      // ⚠️ 请在这里填入你的 Mapbox Access Token
+      mapboxgl.accessToken = 'pk.eyJ1IjoiYWdlZGh1YW5nIiwiYSI6ImNtaXhxMGZzcjA3OHkzZXB2eHc5aW9rdGsifQ.hS7zTrSPW7HAjfmx3YeUHA';
+
+      // ============================================
+      // ASCII Art 数字定义 (Doh 风格)
+      // ============================================
+      const asciiDigits = {
+        '0': [
+          " .d8888b. ",
+          "d88P  Y88b",
+          "888    888",
+          "888    888",
+          "888    888",
+          "888    888",
+          "Y88b  d88P",
+          " \"Y8888P\" "
+        ],
+        '1': [
+          " d8888 ",
+          "   888 ",
+          "   888 ",
+          "   888 ",
+          "   888 ",
+          "   888 ",
+          "   888 ",
+          " 88888 "
+        ],
+        '2': [
+          " .d8888b. ",
+          "d88P  Y88b",
+          "       888",
+          "     .d88P",
+          " .od888P\" ",
+          "d88P\"     ",
+          "888\"      ",
+          "888888888 "
+        ],
+        '3': [
+          " .d8888b. ",
+          "d88P  Y88b",
+          "     .d88P",
+          "    8888\" ",
+          "     \"Y8b.",
+          "888    888",
+          "Y88b  d88P",
+          " \"Y8888P\" "
+        ],
+        '4': [
+          "    d8888 ",
+          "   d8P888 ",
+          "  d8P 888 ",
+          " d8P  888 ",
+          "d88   888 ",
+          "8888888888",
+          "      888 ",
+          "      888 "
+        ],
+        '5': [
+          "888888888 ",
+          "888       ",
+          "888       ",
+          "8888888b. ",
+          "     \"Y88b",
+          "       888",
+          "Y88b  d88P",
+          " \"Y8888P\" "
+        ],
+        '6': [
+          " .d8888b. ",
+          "d88P  Y88b",
+          "888       ",
+          "888d888b. ",
+          "888P \"Y88b",
+          "888    888",
+          "Y88b  d88P",
+          " \"Y8888P\" "
+        ],
+        '7': [
+          "8888888888",
+          "      d88P",
+          "     d88P ",
+          "    d88P  ",
+          "   d88P   ",
+          "  d88P    ",
+          " d88P     ",
+          "d88P      "
+        ],
+        '8': [
+          " .d8888b. ",
+          "d88P  Y88b",
+          "Y88b. d88P",
+          " \"Y88888\" ",
+          ".d8P\"\"Y8b.",
+          "888    888",
+          "Y88b  d88P",
+          " \"Y8888P\" "
+        ],
+        '9': [
+          " .d8888b. ",
+          "d88P  Y88b",
+          "888    888",
+          "Y88b. d888",
+          " \"Y888P888",
+          "       888",
+          "Y88b  d88P",
+          " \"Y8888P\" "
+        ],
+        '-': [
+          "          ",
+          "          ",
+          "          ",
+          " 88888888 ",
+          " 88888888 ",
+          "          ",
+          "          ",
+          "          "
+        ]
+      };
+
+      function renderAsciiText(text) {
+        const lines = Array(8).fill("");
+        for (let char of text) {
+          const charLines = asciiDigits[char] || asciiDigits['-']; // Fallback to dash
+          for (let i = 0; i < 8; i++) {
+            lines[i] += charLines[i] + "  "; // Add spacing
+          }
+        }
+        return lines.join("\n");
+      }
+
+      // ============================================
+      // 全局变量
+      // ============================================
+      let map;
+      let allData = []; // 存储所有UFO数据
+      let filteredData = []; // 当前时间点过滤后的数据
+      let currentDate = { year: 1960, month: 1 }; // 当前年月
+      let minDate = { year: 1960, month: 1 }; // 最小年月
+      let maxDate = { year: 2025, month: 12 }; // 最大年月
+      let isPlaying = false;
+      let animationSpeed = 1; // 播放速度倍数
+      let animationId = null;
+
+      // ============================================
+      // 初始化地图
+      // ============================================
+      function initMap() {
+        // 初始配置：启用地球模式(globe)，并将视角设置在远处(zoom: 1.5)和背面(center: [160, 20])
+        // 这样在加载时会显示一个完整的地球，并准备进行旋转动画
+        map = new mapboxgl.Map({
+          container: 'map',
+          style: 'mapbox://styles/mapbox/dark-v11', // 深色底图
+          center: [160, 20], // 初始中心点（太平洋/亚洲），与美国相对
+          zoom: 2, // 初始缩放级别（可以看到整个地球）
+          projection: 'globe', // 启用地球模式
+        });
+
+        map.on('style.load', () => {
+          // 1. 设置大气层和星空 (营造太空感)
+          map.setFog({
+              'color': 'rgb(20, 20, 20)', // 大气层低处颜色 (深灰)
+              'high-color': 'rgb(0, 0, 0)', // 大气层高处颜色 (太空黑)
+              'horizon-blend': 0.1, // 地平线混合程度
+              'space-color': 'rgb(0, 0, 0)', // 星空背景色
+              'star-intensity': 0.6 // 星星亮度
+          });
+
+          // 2. 尝试修改水域颜色 (让海洋更深邃)
+          if (map.getLayer('water')) {
+              map.setPaintProperty('water', 'fill-color', '#0a0a0a'); 
+          }
+          
+          // 3. 确保背景是黑色的
+          map.setPaintProperty('background', 'background-color', '#000000');
+        });
+
+        map.on('load', () => {
+          console.log('地图加载完成');
+          
+          // 延迟 1 秒后开始飞行动画，飞向美国
+          setTimeout(() => {
+            // 检测屏幕宽度，手机端适应性缩放
+            const isMobile = window.innerWidth <= 768;
+            const targetZoom = isMobile ? 3 : 4.5; // 手机端缩放小一点，能看到全美
+            const targetCenter = isMobile ? [-95, 40] : [-95, 40];
+
+            map.flyTo({
+              center: targetCenter, // 目标位置：美国中心
+              zoom: targetZoom,           // 目标缩放级别
+              speed: 0.5,        // 飞行速度
+              curve: 1.5,        // 飞行曲线
+              essential: true    // 确保动画执行
+            });
+          }, 1000);
+
+          loadData();
+        });
+
+        // 地图缩放时更新点的大小
+        map.on('zoom', updateCircleRadius);
+      }
+
+      // ============================================
+      // 加载CSV数据
+      // ============================================
+      function loadData() {
+        d3.csv('ufo_final_geocoded.csv')
+          .then((data) => {
+            console.log('数据加载成功，共', data.length, '条记录');
+
+            // 数据预处理
+            allData = data
+              .filter((d) => d.lat && d.lng && d.Date) // 过滤无效数据
+              .map((d) => {
+                // 解析日期，提取年份和月份
+                const dateStr = d.Date.trim();
+                let year = null;
+                let month = null;
+
+                // 尝试解析 MM/DD/YYYY 格式
+                if (dateStr.includes('/')) {
+                  const parts = dateStr.split('/');
+                  if (parts.length >= 3) {
+                    month = parseInt(parts[0]); // 月份
+                    const yearPart = parts[2].split(' ')[0];
+                    year = parseInt(yearPart); // 年份
+                  }
+                }
+
+                // 如果解析失败，尝试其他格式
+                if (!year || isNaN(year)) {
+                  const yearMatch = dateStr.match(/\d{4}/);
+                  if (yearMatch) {
+                    year = parseInt(yearMatch[0]);
+                  }
+                }
+
+                // 确保月份有效
+                if (!month || isNaN(month) || month < 1 || month > 12) {
+                  month = 1; // 默认1月
+                }
+
+                return {
+                  lat: parseFloat(d.lat),
+                  lng: parseFloat(d.lng),
+                  date: d.Date,
+                  city: d.City || 'Unknown',
+                  shape: d.Shape || 'Unknown',
+                  year: year || 2000,
+                  month: month,
+                  yearMonth: year * 100 + month, // 用于比较，如 196001
+                  original: d,
+                };
+              })
+              .filter((d) => d.year >= 1960 && d.year <= 2025); // 只保留1960年及以后的数据
+
+            // 找到最小和最大年月
+            const minYearMonth = d3.min(allData, (d) => d.yearMonth);
+            const maxYearMonth = d3.max(allData, (d) => d.yearMonth);
+
+            minDate = {
+              year: Math.floor(minYearMonth / 100),
+              month: minYearMonth % 100,
+            };
+            maxDate = {
+              year: Math.floor(maxYearMonth / 100),
+              month: maxYearMonth % 100,
+            };
+
+            console.log('数据年月范围:', minDate.year, '-', minDate.month, '到', maxDate.year, '-', maxDate.month);
+            console.log('有效数据:', allData.length, '条');
+
+            // 计算总月数（用于滑块）
+            const totalMonths = (maxDate.year - minDate.year) * 12 + (maxDate.month - minDate.month) + 1;
+
+            // 更新滑块范围（使用月份索引）
+            document.getElementById('time-slider').min = 0;
+            document.getElementById('time-slider').max = totalMonths - 1;
+            document.getElementById('time-slider').value = 0;
+            document.getElementById('max-year').textContent = `${maxDate.year}-${String(maxDate.month).padStart(2, '0')}`;
+
+            // 初始化地图数据源
+            initMapSource();
+
+            // 隐藏加载提示
+            document.getElementById('loading').style.display = 'none';
+          })
+          .catch((error) => {
+            console.error('数据加载失败:', error);
+            document.getElementById('loading').textContent = 'Error loading data';
+          });
+      }
+
+      // ============================================
+      // 初始化地图数据源
+      // ============================================
+      function initMapSource() {
+        // 添加空的数据源
+        map.addSource('ufo-points', {
+          type: 'geojson',
+          data: {
+            type: 'FeatureCollection',
+            features: [],
+          },
+        });
+
+        // 添加图层 - 使用圆形标记
+        map.addLayer({
+          id: 'ufo-points-layer',
+          type: 'circle',
+          source: 'ufo-points',
+          paint: {
+            'circle-radius': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              3,
+              1.5, // 缩放级别3时，半径为1.5px
+              10,
+              4, // 缩放级别10时，半径为4px
+            ],
+            'circle-color': '#00FF00', // 荧光绿
+            'circle-opacity': 0.4, // 半透明
+            'circle-blur': 0.5, // 模糊边缘
+            'circle-stroke-width': 0.5,
+            'circle-stroke-color': '#00FFFF', // 青色边框
+            'circle-stroke-opacity': 0.3,
+          },
+        });
+
+        // 添加hover交互
+        map.on('mouseenter', 'ufo-points-layer', () => {
+          map.getCanvas().style.cursor = 'pointer';
+        });
+
+        map.on('mouseleave', 'ufo-points-layer', () => {
+          map.getCanvas().style.cursor = '';
+        });
+
+        // 点击显示popup
+        map.on('click', 'ufo-points-layer', (e) => {
+          const feature = e.features[0];
+          const props = feature.properties;
+
+          new mapboxgl.Popup()
+            .setLngLat(e.lngLat)
+            .setHTML(
+              `
+                        <div class="popup-content">
+                            <div><strong>Date:</strong> ${props.date || 'Unknown'}</div>
+                            <div><strong>City:</strong> ${props.city || 'Unknown'}</div>
+                            <div><strong>Shape:</strong> ${props.shape || 'Unknown'}</div>
+                        </div>
+                    `
+            )
+            .addTo(map);
+        });
+
+        // 初始更新
+        updateMapData(minDate.year, minDate.month);
+      }
+
+      // ============================================
+      // 更新地图数据（根据当前年月）
+      // ============================================
+      function updateMapData(year, month) {
+        currentDate = { year, month };
+        const currentYearMonth = year * 100 + month;
+
+        // 过滤数据：显示当前年月及以前的所有点（累积效果）
+        filteredData = allData.filter((d) => d.yearMonth <= currentYearMonth);
+
+        // 转换为GeoJSON格式
+        const geojson = {
+          type: 'FeatureCollection',
+          features: filteredData.map((d) => ({
+            type: 'Feature',
+            geometry: {
+              type: 'Point',
+              coordinates: [d.lng, d.lat],
+            },
+            properties: {
+              date: d.date,
+              city: d.city,
+              shape: d.shape,
+              year: d.year,
+              month: d.month,
+            },
+          })),
+        };
+
+        // 更新地图数据源
+        map.getSource('ufo-points').setData(geojson);
+
+        // 更新年月显示
+        const monthStr = String(month).padStart(2, '0');
+        document.getElementById('year-display').textContent = renderAsciiText(`${year}-${monthStr}`);
+        document.getElementById('current-year').textContent = `${year}-${monthStr}`;
+
+        // 更新滑块位置（计算月份索引）
+        const monthIndex = (year - minDate.year) * 12 + (month - minDate.month);
+        document.getElementById('time-slider').value = monthIndex;
+
+        console.log(`显示到 ${year}-${monthStr} 的数据，共 ${filteredData.length} 个点`);
+      }
+
+      // ============================================
+      // 从月份索引转换为年月
+      // ============================================
+      function monthIndexToDate(monthIndex) {
+        let year = minDate.year;
+        let month = minDate.month;
+
+        month += monthIndex;
+        while (month > 12) {
+          month -= 12;
+          year += 1;
+        }
+
+        return { year, month };
+      }
+
+      // ============================================
+      // 更新圆点大小（根据缩放级别）
+      // ============================================
+      function updateCircleRadius() {
+        // 这个功能已经在图层定义中通过interpolate实现了
+        // 这里可以添加额外的逻辑如果需要
+      }
+
+      // ============================================
+      // 时间轴滑块事件
+      // ============================================
+      document.getElementById('time-slider').addEventListener('input', (e) => {
+        const monthIndex = parseInt(e.target.value);
+        const date = monthIndexToDate(monthIndex);
+        updateMapData(date.year, date.month);
+      });
+
+      // ============================================
+      // 播放/暂停控制
+      // ============================================
+      function togglePlayPause() {
+        if (isPlaying) {
+          pauseAnimation();
+        } else {
+          playAnimation();
+        }
+      }
+
+      function playAnimation() {
+        if (isPlaying) return;
+
+        isPlaying = true;
+        const btn = document.getElementById('play-pause-btn');
+        btn.textContent = '⏸ Pause';
+        btn.classList.add('active');
+
+        function animate() {
+          if (!isPlaying) return;
+
+          // 计算当前年月索引
+          const currentIndex = (currentDate.year - minDate.year) * 12 + (currentDate.month - minDate.month);
+          const maxIndex = (maxDate.year - minDate.year) * 12 + (maxDate.month - minDate.month);
+
+          if (currentIndex < maxIndex) {
+            // 增加月份
+            let newMonth = currentDate.month + animationSpeed;
+            let newYear = currentDate.year;
+
+            while (newMonth > 12) {
+              newMonth -= 12;
+              newYear += 1;
+            }
+
+            // 确保不超过最大日期
+            if (newYear > maxDate.year || (newYear === maxDate.year && newMonth > maxDate.month)) {
+              newYear = maxDate.year;
+              newMonth = maxDate.month;
+            }
+
+            updateMapData(newYear, newMonth);
+            animationId = setTimeout(animate, 50); // 每50ms更新一次
+          } else {
+            pauseAnimation();
+          }
+        }
+
+        animate();
+      }
+
+      function pauseAnimation() {
+        isPlaying = false;
+        if (animationId) {
+          clearTimeout(animationId);
+          animationId = null;
+        }
+        const btn = document.getElementById('play-pause-btn');
+        if (btn) {
+            btn.textContent = '▶ Play';
+            btn.classList.remove('active');
+        }
+      }
+
+      function resetAnimation() {
+        pauseAnimation();
+        updateMapData(minDate.year, minDate.month);
+      }
+
+      function toggleSpeed() {
+        const speeds = [1, 2, 5, 10, 20];
+        const currentIndex = speeds.indexOf(animationSpeed);
+        const nextIndex = (currentIndex + 1) % speeds.length;
+        animationSpeed = speeds[nextIndex];
+        document.getElementById('speed-btn').textContent = `Speed: ${animationSpeed}x`;
+      }
+
+      // ============================================
+      // 按钮事件绑定
+      // ============================================
+      document.getElementById('play-pause-btn').addEventListener('click', togglePlayPause);
+      document.getElementById('reset-btn').addEventListener('click', resetAnimation);
+      document.getElementById('speed-btn').addEventListener('click', toggleSpeed);
+
+      // ============================================
+      // 初始化
+      // ============================================
+      initMap();
+    </script>
+  </body>
+</html>

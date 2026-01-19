@@ -2,7 +2,8 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="format-detection" content="telephone=no, date=no, email=no, address=no" />
     <title>UFO Sightings Interactive Map</title>
 
     <!-- Google Fonts - 数码感字体 -->
@@ -295,7 +296,7 @@
           top: 10px;
           left: 10px;
           flex-direction: column; /* 垂直排列 */
-          gap: 5px;
+          gap: 3px;
           transform: none; /* 移除缩放 */
           width: auto;
           z-index: 10;
@@ -307,7 +308,7 @@
         }
 
         #year-display {
-          top: 160px; /* 增加到130px以避开两行堆叠的ASCII标题 */
+          top: 145px; /* 增加到130px以避开两行堆叠的ASCII标题 */
           left: 10px;
           font-size: 6px !important; /* 与标题保持一致 */
           transform: none;
@@ -315,13 +316,13 @@
 
         /* 2. 调整切换按钮 */
         .view-toggle {
-          top: 10px;
-          right: 10px;
-          z-index: 2000; /* 确保在最顶层但不遮挡标题(因为标题变小了) */
+          top: max(15px, env(safe-area-inset-top));
+          right: max(15px, env(safe-area-inset-right));
+          z-index: 2001; /* 提高层级 */
         }
         .toggle-option {
-          padding: 4px 10px;
-          font-size: 10px;
+          padding: 8px 12px; /* 增大点击区域 */
+          font-size: 11px;
         }
 
         /* 3. 调整控制面板布局 */
@@ -421,8 +422,8 @@ Y88b. .d88P 888        Y88b. .d88P
       </div>
       <div id="time-range"><span id="current-year">1960-01</span> / <span id="max-year">2025-12</span></div>
       <div id="controls-buttons">
-        <button class="control-btn" id="play-pause-btn">▶ Play</button>
-        <button class="control-btn" id="reset-btn">⏮ Reset</button>
+        <button class="control-btn" id="play-pause-btn">▶&#xFE0E; Play</button>
+        <button class="control-btn" id="reset-btn">⏮&#xFE0E; Reset</button>
         <button class="control-btn" id="speed-btn">Speed: 1x</button>
       </div>
     </div>
@@ -886,7 +887,7 @@ Y88b. .d88P 888        Y88b. .d88P
 
         isPlaying = true;
         const btn = document.getElementById('play-pause-btn');
-        btn.textContent = '⏸ Pause';
+        btn.textContent = '⏸\uFE0E Pause';
         btn.classList.add('active');
 
         function animate() {
@@ -930,7 +931,7 @@ Y88b. .d88P 888        Y88b. .d88P
         }
         const btn = document.getElementById('play-pause-btn');
         if (btn) {
-            btn.textContent = '▶ Play';
+            btn.textContent = '▶\uFE0E Play';
             btn.classList.remove('active');
         }
       }

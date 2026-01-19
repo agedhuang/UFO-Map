@@ -2,7 +2,8 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="format-detection" content="telephone=no" />
     <title>UFO Media Gallery</title>
 
     <!-- Google Fonts -->
@@ -290,10 +291,77 @@
         flex-direction: column;
       }
 
+      /* ============================================
+         移动端响应式设计 (Responsive Design)
+      ============================================ */
+      @media (max-width: 768px) {
+        /* 1. 调整切换按钮 - 与Map页面保持一致 */
+        .view-toggle {
+          top: max(15px, env(safe-area-inset-top));
+          right: max(15px, env(safe-area-inset-right));
+          z-index: 2001;
+        }
+        .toggle-option {
+          padding: 8px 12px; /* 增大点击区域 */
+          font-size: 11px;
+        }
+
+        /* 2. 调整导航栏/标题 */
+        .navbar {
+            padding: 8px 15px;
+            flex-direction: column;
+            align-items: flex-start;
+            pointer-events: none;
+            background: rgba(0,0,0,0.6);
+            border-bottom: none;
+        }
+
+        /* 3. 模态框适应屏幕 */
+        .modal.active {
+          padding: 15px;
+          justify-content: flex-start; /* 移动端靠上对齐，避免被软键盘遮挡 */
+        }
+
+        .modal-content {
+           width: 100%;
+           max-width: 100%;
+           height: auto;
+           max-height: 90vh; /* 避免溢出 */
+           padding: 15px;
+           margin-top: 40px;
+        }
+
+        .modal-body {
+           flex-direction: column; /* 上下图文 */
+        }
+        
+        .modal-image-container {
+            width: 100%;
+            height: 250px; /* 限制图片高度 */
+            margin-bottom: 20px;
+        }
+
+        .modal-info {
+            width: 100%;
+            padding-left: 0;
+        }
+
+        /* 4. 控制面板适应 (如果有) */
+        #search-container {
+             width: 100%;
+             max-width: 100%;
+             top: auto;
+             bottom: 20px;
+             left: 10px;
+             right: 10px;
+             position: absolute;
+        }
+      }
+
       .modal-close {
         position: absolute;
-        top: 15px;
-        right: 15px;
+        top: 10px;
+        right: 10px;
         background: transparent;
         border: 2px solid #00ff00;
         color: #00ff00;
@@ -376,13 +444,63 @@
         left: 50%;
         transform: translate(-50%, -50%);
         color: #00ff00;
-        font-family: 'Orbitron', monospace;
+        font-family: 'helvetica', monospace;
         font-size: 18px;
         z-index: 999;
+      }
+
+      /* 移动端警告 */
+      #mobile-warning {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: #000;
+        z-index: 10000;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 20px;
+        color: #00ff00;
+        font-family: 'Helvetica', sans-serif;
+      }
+
+      #mobile-warning h2 {
+        margin-bottom: 20px;
+        font-size: 24px;
+      }
+
+      #mobile-warning p {
+        font-family: 'Helvetica', sans-serif;
+        font-size: 16px;
+        line-height: 1.5;
+        max-width: 300px;
+        color: #ccc;
+      }
+
+      #mobile-warning .back-btn {
+        margin-top: 30px;
+        padding: 10px 20px;
+        border: 1px solid #00ff00;
+        color: #00ff00;
+        text-decoration: none;
+        font-family: 'Helvetica', sans-serif;
+        border-radius: 4px;
       }
     </style>
   </head>
   <body>
+    <!-- 移动端警告浮层 -->
+    <div id="mobile-warning">
+      <h2>Desktop Only</h2>
+      <p>This visualization requires high GPU performance and is not optimized for mobile devices.</p>
+      <p>Please access this page on a desktop computer.</p>
+      <a href="index.html" class="back-btn">Return to Map</a>
+    </div>
+
     <!-- 视图切换 -->
     <div class="view-toggle">
       <a href="index.html" class="toggle-option">Map</a>
@@ -1671,15 +1789,28 @@
       // ============================================
       console.log('脚本开始执行');
 
+      function checkMobileAndInit() {
+          const isMobile = window.innerWidth <= 768 || /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+          if (isMobile) {
+              console.warn('Mobile device detected. Stopping Gallery initialization.');
+              const warning = document.getElementById('mobile-warning');
+              const loading = document.getElementById('loading');
+              if (warning) warning.style.display = 'flex';
+              if (loading) loading.style.display = 'none';
+              return;
+          }
+          setTimeout(init, 50);
+      }
+
       // 等待DOM完全加载
       if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', function () {
           console.log('DOMContentLoaded触发');
-          setTimeout(init, 50);
+          checkMobileAndInit();
         });
       } else {
         console.log('DOM已加载，立即初始化');
-        setTimeout(init, 50);
+        checkMobileAndInit();
       }
     </script>
   </body>
